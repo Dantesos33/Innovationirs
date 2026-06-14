@@ -9,21 +9,33 @@ trait DownloadsImages
 {
     /**
      * Download a remote image, store it on the public disk, and create a MediaLibrary record.
-     * url column is ALWAYS null — the public_url accessor on MediaLibrary generates it dynamically.
+     * Reuses existing MediaLibrary records if original_name matches to save time.
      */
     protected function downloadImage(string $url, string $directory, string $altText): ?int
     {
+        $filename = basename(parse_url($url, PHP_URL_PATH));
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION)) ?: 'jpg';
+        
+        // 1. Check database first to avoid redundant downloads
+        $existing = MediaLibrary::where('original_name', $filename)
+            ->where('directory', $directory)
+            ->first();
+
+        if ($existing) {
+            if (isset($this->command)) {
+                $this->command->info("  ✓ Reusing existing media: {$filename}");
+            }
+            return $existing->id;
+        }
+
         try {
             $context = stream_context_create([
                 'http' => [
-                    'timeout' => 20,
+                    'timeout' => 5, // Faster timeout
                     'follow_location' => true,
-                    // Replaced user_agent with an array of realistic headers:
                     'header' => [
                         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                         "Accept: image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-                        "Accept-Language: en-US,en;q=0.9",
-                        "Connection: keep-alive"
                     ]
                 ],
                 'ssl' => [
@@ -32,19 +44,29 @@ trait DownloadsImages
                 ],
             ]);
 
+            if (isset($this->command)) {
+                $this->command->line("  ↓ Downloading: {$url}");
+            }
 
             $imageData = @file_get_contents($url, false, $context);
 
             if ($imageData === false || strlen($imageData) < 100) {
-                if (isset($this->command)) {
-                    $this->command->warn("  ⚠  Could not download: {$url}");
+                // Fallback to placeholder if download fails
+                $placeholderPath = public_path('images/placeholder-part.jpg');
+                if (file_exists($placeholderPath)) {
+                    $imageData = file_get_contents($placeholderPath);
+                    $filename = 'placeholder-' . Str::random(8) . '.jpg';
+                    $ext = 'jpg';
+                    if (isset($this->command)) {
+                        $this->command->info("  → Download failed or blocked. Using placeholder.");
+                    }
+                } else {
+                    return null;
                 }
-                return null;
             }
 
-            $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION)) ?: 'jpg';
-            $filename = Str::uuid() . '.' . $ext;
-            $filePath = $directory . '/' . $filename;
+            $newFilename = Str::uuid() . '.' . $ext;
+            $filePath = $directory . '/' . $newFilename;
 
             Storage::disk('public')->put($filePath, $imageData);
 
@@ -69,18 +91,15 @@ trait DownloadsImages
                 'gif' => 'image/gif',
                 'webp' => 'image/webp',
                 'svg' => 'image/svg+xml',
-                'bmp' => 'image/bmp',
             ];
             $mimeType = $mimeMap[$ext] ?? 'image/jpeg';
 
             $media = MediaLibrary::create([
-                'admin_id' => null,
                 'disk' => 'public',
                 'directory' => $directory,
-                'filename' => $filename,
+                'filename' => $newFilename,
                 'original_name' => basename(parse_url($url, PHP_URL_PATH)),
                 'file_path' => $filePath,
-                'url' => null, // NEVER hardcode — accessor generates dynamically
                 'mime_type' => $mimeType,
                 'extension' => $ext,
                 'file_size' => strlen($imageData),
@@ -88,14 +107,13 @@ trait DownloadsImages
                 'height' => $height,
                 'alt_text' => $altText,
                 'title' => $altText,
-                'caption' => null,
             ]);
 
             return $media->id;
 
         } catch (\Exception $e) {
             if (isset($this->command)) {
-                $this->command->warn("  ✗ Image error [{$url}]: " . $e->getMessage());
+                $this->command->warn("  ✗ Error [{$url}]: " . $e->getMessage());
             }
             return null;
         }

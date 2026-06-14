@@ -10,11 +10,11 @@ class PartImage extends Model
     protected $table = 'part_images';
 
     protected $fillable = [
-        'part_id', 'media_id', 'is_primary', 'sort_order',
+        'part_id', 'media_library_id', 'is_main', 'sort_order',
     ];
 
     protected $casts = [
-        'is_primary' => 'boolean',
+        'is_main' => 'boolean',
         'sort_order' => 'integer',
         'created_at' => 'datetime',
     ];
@@ -26,7 +26,7 @@ class PartImage extends Model
 
     public function media()
     {
-        return $this->belongsTo(MediaLibrary::class, 'media_id');
+        return $this->belongsTo(MediaLibrary::class, 'media_library_id');
     }
 
     /**

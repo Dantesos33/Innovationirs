@@ -18,6 +18,7 @@ return new class extends Migration {
             $table->id();
             $table->foreignId('admin_id')->nullable()->constrained('admins')->nullOnDelete();
             $table->foreignId('blog_category_id')->constrained('blog_categories')->cascadeOnDelete();
+            $table->foreignId('featured_image_id')->nullable()->constrained('media_library')->nullOnDelete();
             $table->string('title', 255);
             $table->string('slug', 255)->unique();
             $table->text('excerpt')->nullable();

@@ -1041,6 +1041,17 @@ class PartsSeeder extends Seeder
             // Build unique slug string
             $slug = Str::slug($partData['name']);
 
+            // Download/get image
+            $imageUrl = $partData['image_url'] ?? null;
+            $mediaId = null;
+            if ($imageUrl) {
+                $mediaId = $this->downloadImage(
+                    $imageUrl,
+                    'parts',
+                    $partData['name']
+                );
+            }
+
             // Clean out data array parameters not native to parts database table columns
             unset($partData['make'], $partData['equipment_type'], $partData['categories'], $partData['image_url']);
 
@@ -1051,9 +1062,26 @@ class PartsSeeder extends Seeder
                     'slug' => $slug,
                     'make_id' => $make?->id ?? 1, // Fallback safe protection
                     'equipment_type_id' => $eqType?->id ?? 1,
+                    'primary_image_id' => $mediaId,
                     'views' => $partData['views'] ?? rand(50, 500),
                 ])
             );
+
+            // Create PartImage entry if we have a mediaId
+            if ($mediaId) {
+                PartImage::updateOrCreate(
+                    [
+                        'part_id' => $part->id,
+                        'media_library_id' => $mediaId,
+                    ],
+                    [
+                        'part_id' => $part->id,
+                        'media_library_id' => $mediaId,
+                        'sort_order' => 0,
+                        'is_main' => true,
+                    ]
+                );
+            }
 
             // Sync many-to-many bridge constraints
             $categoryIds = Category::whereIn('name', $categoryNames)->pluck('id');
